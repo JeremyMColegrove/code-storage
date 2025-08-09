@@ -9,6 +9,7 @@ vi.mock('../fs-sync', () => ({
   writeAllToDisk: vi.fn(async (_h: any, s: ScriptItem[]) => s.map(x => ({ ...x, filePath: x.filePath || 'a.js' }))),
   writeScriptsToDisk: vi.fn(async (_h: any, s: ScriptItem[]) => s.map(x => ({ ...x, filePath: x.filePath || 'a.js' }))),
   mergeScripts: vi.fn((a: ScriptItem[], b: ScriptItem[]) => [...a, ...b]),
+  importChangesSince: vi.fn(async (_h: any, _e: any) => ({ changed: [], onDiskFilenames: new Set() })),
 }));
 
 vi.mock('../storage', () => ({ saveState: vi.fn() }));
@@ -33,7 +34,7 @@ describe('vault-actions', () => {
 
   it('syncFromFolder merges and saves', async () => {
     const handle: any = {};
-    const state: VaultState = { scripts: [], selectedId: null, settings: { geminiApiKey: null } };
+    const state: VaultState = { scripts: [], selectedId: null, settings: { preferredProvider: 'gemini', geminiApiKey: null, openaiApiKey: null, claudeApiKey: null } } as any;
     const setState = vi.fn();
     await syncFromFolder(handle, state, setState);
     expect(setState).toHaveBeenCalled();
@@ -47,14 +48,14 @@ describe('vault-actions', () => {
   });
 
   it('saveAllToDiskOrLocal with directory writes to disk', async () => {
-    const state: VaultState = { scripts: [{ id: '1', name: 'a', description: '', language: 'javascript', content: '1', createdAt: '', updatedAt: '' }], selectedId: '1', settings: { geminiApiKey: null } };
+    const state: VaultState = { scripts: [{ id: '1', name: 'a', description: '', language: 'javascript', content: '1', createdAt: '', updatedAt: '' }], selectedId: '1', settings: { preferredProvider: 'gemini', geminiApiKey: null, openaiApiKey: null, claudeApiKey: null } } as any;
     const setState = vi.fn();
     await saveAllToDiskOrLocal(state, {} as any, setState);
     expect(setState).toHaveBeenCalled();
   });
 
   it('deleteScriptEverywhere updates state without directory', async () => {
-    const state: VaultState = { scripts: [{ id: '1', name: 'a', description: '', language: 'javascript', content: '1', createdAt: '', updatedAt: '' }], selectedId: '1', settings: { geminiApiKey: null } };
+    const state: VaultState = { scripts: [{ id: '1', name: 'a', description: '', language: 'javascript', content: '1', createdAt: '', updatedAt: '' }], selectedId: '1', settings: { preferredProvider: 'gemini', geminiApiKey: null, openaiApiKey: null, claudeApiKey: null } } as any;
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const setState = vi.fn();
     await deleteScriptEverywhere('1', state, null, setState);
@@ -64,7 +65,7 @@ describe('vault-actions', () => {
   it('updateCurrentScript applies patch through setState updater', () => {
     const current: ScriptItem = { id: '1', name: 'a', description: '', language: 'javascript', content: '1', createdAt: '', updatedAt: '' };
     const setState = vi.fn((updater) => {
-      const prev: VaultState = { scripts: [current], selectedId: '1', settings: { geminiApiKey: null } } as any;
+      const prev: VaultState = { scripts: [current], selectedId: '1', settings: { preferredProvider: 'gemini', geminiApiKey: null, openaiApiKey: null, claudeApiKey: null } } as any;
       const next = updater(prev);
       expect(next.scripts[0].name).toBe('b');
     });

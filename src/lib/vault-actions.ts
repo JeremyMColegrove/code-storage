@@ -1,5 +1,6 @@
 import { toast } from "sonner";
-import { importFromFolder as fsImportFromFolder, writeAllToDisk as fsWriteAllToDisk, writeScriptsToDisk as fsWriteScriptsToDisk, mergeScripts } from "./fs-sync";
+import { importFromFolder as fsImportFromFolder, writeAllToDisk as fsWriteAllToDisk, writeScriptsToDisk as fsWriteScriptsToDisk, importChangesSince, mergeScripts, type DirectoryScanResult } from "./fs-sync";
+import { HANDLE_KEY, idbSet } from "./idb";
 import { saveState } from "./storage";
 import { filenameFor, nowIso, type ScriptItem, type VaultState } from "./vault";
 
@@ -15,20 +16,51 @@ export async function openFolderAndImport(setDirectory: (h: FileSystemDirectoryH
   }
   setDirectory(handle);
   setFolderName(handle.name);
+  // Persist handle so it can be restored on refresh
+  try { await idbSet(HANDLE_KEY, handle); } catch { /* ignore */ }
   const imported = await fsImportFromFolder(handle);
-  const newState: VaultState = { scripts: imported, selectedId: imported[0]?.id || null, settings: { geminiApiKey: null } };
+  const newState: VaultState = {
+    scripts: imported,
+    selectedId: imported[0]?.id || null,
+    settings: {
+      preferredProvider: "gemini",
+      geminiApiKey: null,
+      openaiApiKey: null,
+      claudeApiKey: null,
+      lastSyncAt: nowIso(),
+    },
+  };
   setState(newState);
   saveState(newState);
   toast.success("Folder linked and imported");
 }
 
 export async function syncFromFolder(handle: FileSystemDirectoryHandle, state: VaultState, setState: (s: VaultState) => void) {
-  const imported = await fsImportFromFolder(handle);
-  const merged = mergeScripts(state.scripts, imported);
-  const next: VaultState = { scripts: merged, selectedId: merged[0]?.id || null, settings: state.settings };
+  // Only read files changed since last sync
+  const { changed: changedOrNew, onDiskFilenames }: DirectoryScanResult = await importChangesSince(handle, state.scripts, state.settings?.lastSyncAt ?? null);
+
+  // If nothing changed (and no deletions), just bump lastSyncAt
+  const hasDeletions = !!onDiskFilenames && state.scripts.some(s => s.filePath && !onDiskFilenames.has(s.filePath));
+  if (changedOrNew.length === 0 && !hasDeletions) {
+    const next: VaultState = { ...state, settings: { ...state.settings, lastSyncAt: nowIso() } } as VaultState;
+    setState(next);
+    saveState(next);
+    toast.message("No changes detected");
+    return;
+  }
+
+  // Remove anything not present on disk (including local-only items without a filePath)
+  let base = state.scripts;
+  if (onDiskFilenames) {
+    base = base.filter((s) => s.filePath && onDiskFilenames.has(s.filePath));
+  }
+
+  const merged = mergeScripts(base, changedOrNew);
+  const selectedId = state.selectedId ?? (merged[0]?.id || null);
+  const next: VaultState = { scripts: merged, selectedId, settings: { ...state.settings, lastSyncAt: nowIso() } } as VaultState;
   setState(next);
   saveState(next);
-  toast.message("Synced from folder");
+  toast.message(`Synced ${changedOrNew.length} file(s)`);
 }
 
 export async function copyCurrentToClipboard(current: ScriptItem | null) {
@@ -42,11 +74,11 @@ export async function saveAllToDiskOrLocal(state: VaultState, directoryHandle: F
     try {
       const updated = await fsWriteAllToDisk(directoryHandle, state.scripts, state.settings);
       if (updated) {
-        const next = { ...state, scripts: updated };
+        const next = { ...state, scripts: updated, settings: { ...state.settings, lastSyncAt: nowIso() } } as VaultState;
         setState(next);
         saveState(next);
       } else {
-        saveState(state);
+        saveState({ ...state, settings: { ...state.settings, lastSyncAt: nowIso() } } as VaultState);
       }
       toast.success("Saved to disk");
     } catch {
@@ -93,7 +125,7 @@ export async function deleteScriptEverywhere(id: string, state: VaultState, dire
     }
   }
 
-  const next: VaultState = { scripts: remaining, selectedId: remaining[0]?.id || null };
+  const next: VaultState = { scripts: remaining, selectedId: remaining[0]?.id || null, settings: state.settings };
   setState(next);
   saveState(next);
   toast.message("Script deleted");

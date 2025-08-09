@@ -16,7 +16,14 @@ describe('GenerateWithAIDialog', () => {
     const userCode = 'print(123)';
     // @ts-expect-error - jsdom fetch mock
     global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: userCode }] } }] }) })) as any;
-    render(<GenerateWithAIDialog onResponse={onResponse} trigger={<button>Open</button>} currentLanguage="python" />);
+    render(
+      <GenerateWithAIDialog
+        onResponse={onResponse}
+        trigger={<button>Open</button>}
+        currentLanguage="python"
+        currentProvider="gemini"
+      />
+    );
     fireEvent.click(screen.getByText('Open'));
     fireEvent.change(screen.getByLabelText('Gemini API Key'), { target: { value: 'key' } });
     fireEvent.change(screen.getByLabelText('Request'), { target: { value: 'do it' } });

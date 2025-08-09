@@ -31,10 +31,21 @@ export type ScriptItem = {
   createdAt: string; // ISO
   updatedAt: string; // ISO
   filePath?: string; // Relative filename inside selected folder (if linked)
+  // Content hash of the last known on-disk contents (SHA-256 hex). Optional for backward compatibility.
+  contentHash?: string;
+  // Last modified timestamp of the file on disk (ISO), if linked to a folder
+  diskModifiedAt?: string;
 };
 
 export type VaultSettings = {
+  // Preferred AI provider for generation
+  preferredProvider?: "gemini" | "openai" | "claude";
+  // API keys per provider (stored locally)
   geminiApiKey?: string | null;
+  openaiApiKey?: string | null;
+  claudeApiKey?: string | null;
+  // Last time we refreshed from disk (ISO). Used to skip re-reading unchanged files.
+  lastSyncAt?: string | null;
 };
 
 export type VaultState = {

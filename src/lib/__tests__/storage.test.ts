@@ -8,23 +8,23 @@ describe('storage', () => {
 
   it('loadState returns default when missing', () => {
     const s = loadState();
-    expect(s).toEqual({ scripts: [], selectedId: null, settings: { geminiApiKey: null } });
+    expect(s).toEqual({ scripts: [], selectedId: null, settings: { preferredProvider: 'gemini', geminiApiKey: null, openaiApiKey: null, claudeApiKey: null } });
   });
 
   it('loadState returns default on parse error', () => {
     localStorage.setItem(STORAGE_KEY, '{not json');
     const s = loadState();
-    expect(s).toEqual({ scripts: [], selectedId: null, settings: { geminiApiKey: null } });
+    expect(s).toEqual({ scripts: [], selectedId: null, settings: { preferredProvider: 'gemini', geminiApiKey: null, openaiApiKey: null, claudeApiKey: null } });
   });
 
   it('loadState patches missing settings', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ scripts: [], selectedId: null }));
     const s = loadState();
-    expect(s.settings).toEqual({ geminiApiKey: null });
+    expect(s.settings).toEqual({ preferredProvider: 'gemini', geminiApiKey: null, openaiApiKey: null, claudeApiKey: null });
   });
 
   it('saveState writes to localStorage', () => {
-    const state = { scripts: [], selectedId: null, settings: { geminiApiKey: 'key' } };
+    const state = { scripts: [], selectedId: null, settings: { preferredProvider: 'openai', geminiApiKey: null, openaiApiKey: 'key', claudeApiKey: null } };
     saveState(state as any);
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual(state);
   });

@@ -11,11 +11,11 @@ import { Separator } from "@/components/ui/separator";
 import { Sidebar, SidebarContent, SidebarHeader } from "@/components/ui/sidebar";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { importFromFolder as fsImportFromFolder, mergeScripts } from "@/lib/fs-sync";
+// importFromFolder/mergeScripts not used directly here anymore; sync handled in actions
 import { HANDLE_KEY, idbGet } from "@/lib/idb";
 import { loadState, saveState } from "@/lib/storage";
 import { createBlankScript, filenameFor, LANGUAGE_MAP, nowIso, type LanguageKey, type ScriptItem, type VaultState } from "@/lib/vault";
-import { copyCurrentToClipboard, deleteScriptEverywhere, openFolderAndImport, saveAllToDiskOrLocal } from "@/lib/vault-actions";
+import { syncFromFolder as actionSyncFromFolder, copyCurrentToClipboard, deleteScriptEverywhere, openFolderAndImport, saveAllToDiskOrLocal } from "@/lib/vault-actions";
 import Editor from "@monaco-editor/react";
 import { Copy, FileType2, FolderOpen, HardDrive, Maximize2, Minimize2, Plus, RefreshCcw, Save, Search, ZapIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -36,20 +36,21 @@ export default function ScriptVault() {
   const [isEditorFull, setIsEditorFull] = useState<boolean>(false);
   const [directoryHandle, setDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [linkedFolderName, setLinkedFolderName] = useState<string | null>(null);
+  const [handleChecked, setHandleChecked] = useState<boolean>(false);
   // settings dialog is self-contained; no local state required here
   const current = useMemo(() => state.scripts.find((s: ScriptItem) => s.id === state.selectedId) || null, [state]);
 
   const isDark = (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches) || theme == "dark"
   
-  // Ensure at least one script exists
+  // Ensure at least one script exists only when not linked to a folder and after handle check
   useEffect(() => {
-    if (state.scripts.length === 0) {
+    if (state.scripts.length === 0 && handleChecked && !directoryHandle) {
       const first = createBlankScript([]);
       setState({ scripts: [first], selectedId: first.id, settings: state.settings });
-    } else if (!state.selectedId) {
+    } else if (!state.selectedId && state.scripts.length > 0) {
       setState((prev: VaultState) => ({ ...prev, selectedId: prev.scripts[0]?.id || null }));
     }
-  }, [state.scripts.length, state.selectedId, state.settings]);
+  }, [state.scripts.length, state.selectedId, state.settings, handleChecked, directoryHandle]);
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
@@ -90,15 +91,27 @@ export default function ScriptVault() {
       try {
         const stored = await idbGet<FileSystemDirectoryHandle>(HANDLE_KEY);
         if (!stored) return;
-        type WithPerm = FileSystemDirectoryHandle & { queryPermission?: (opts?: { mode?: "read" | "readwrite" }) => Promise<PermissionState> };
+        type WithPerm = FileSystemDirectoryHandle & {
+          queryPermission?: (opts?: { mode?: "read" | "readwrite" }) => Promise<PermissionState>;
+          requestPermission?: (opts?: { mode?: "read" | "readwrite" }) => Promise<PermissionState>;
+        };
         const withPerm = stored as WithPerm;
         const perm = await withPerm.queryPermission?.({ mode: "readwrite" });
         if ((perm ?? "granted") === "granted") {
           setDirectoryHandle(stored);
           setLinkedFolderName(stored.name);
+        } else if (perm === "prompt" && withPerm.requestPermission) {
+          const req = await withPerm.requestPermission({ mode: "readwrite" });
+          if (req === "granted") {
+            setDirectoryHandle(stored);
+            setLinkedFolderName(stored.name);
+          }
         }
       } catch {
         // ignore
+      }
+      finally {
+        setHandleChecked(true);
       }
     })();
   }, []);
@@ -112,20 +125,13 @@ export default function ScriptVault() {
     }
   }
 
-  async function importFromFolder(handle: FileSystemDirectoryHandle, opts: { replace: boolean }) {
-    const imported = await fsImportFromFolder(handle);
-    const merged = opts.replace ? imported : mergeScripts(state.scripts, imported);
-    setState({ scripts: merged, selectedId: merged[0]?.id || null, settings: state.settings });
-    setIsDirty(false);
-    saveState({ scripts: merged, selectedId: merged[0]?.id || null, settings: state.settings });
-  }
+  // Removed legacy full import in favor of incremental sync in actions
 
   // mergeScripts imported from fs-sync
 
   async function syncFromLinkedFolder() {
     if (!directoryHandle) return;
-    await importFromFolder(directoryHandle, { replace: true });
-    toast.message("Synced from folder");
+    await actionSyncFromFolder(directoryHandle, state, (next) => setState(next));
   }
 
   // write helpers moved to vault-actions
@@ -190,7 +196,7 @@ export default function ScriptVault() {
       <Toaster richColors/>
       <div className="h-screen w-full flex gap-4 p-4 bg-background">
 
-          <AlertDialog open={!directoryHandle}>
+          <AlertDialog open={!directoryHandle && handleChecked}>
             <AlertDialogContent>
               <AlertDialogTitle>Folder required</AlertDialogTitle>
               <AlertDialogDescription>To use Script Vault, you must link a folder on your computer. This keeps your scripts safely stored on disk. Click the button below to choose a folder.</AlertDialogDescription>
@@ -280,7 +286,7 @@ export default function ScriptVault() {
         </Sidebar>
 
         {/* Editor Panel */}
-        <div className="w-full space-y-4">
+        <div className="w-full  space-y-4">
           <div className="flex flex-row">
               <div className="grid gap-1">
                 <Label htmlFor="script-name">Name</Label>
@@ -353,7 +359,18 @@ export default function ScriptVault() {
 
 
                 <GenerateWithAIDialog 
-                  currentKey={state.settings?.geminiApiKey}
+                  currentProvider={state.settings?.preferredProvider ?? "gemini"}
+                  currentGeminiKey={state.settings?.geminiApiKey}
+                  currentOpenAIKey={state.settings?.openaiApiKey}
+                  currentClaudeKey={state.settings?.claudeApiKey}
+                  onSaveSettings={(partial)=> setState((prev)=> {
+                    const next = {
+                      ...prev,
+                      settings: { ...prev.settings, ...partial }
+                    } as typeof prev;
+                    saveState(next);
+                    return next;
+                  })}
                   onResponse={(text)=>{
                     // set the current script to this output if successfull
                     updateCurrent({ content: text ?? "" })

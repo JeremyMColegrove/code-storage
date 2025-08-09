@@ -54,7 +54,7 @@ describe('fs-sync write operations', () => {
     const scripts: ScriptItem[] = [
       { id: '1', name: 'a', description: '', language: 'javascript', content: 'console.log(1)', createdAt: nowIso(), updatedAt: nowIso() },
     ];
-    const updated = await writeScriptsToDisk(dir, scripts, { geminiApiKey: null });
+    const updated = await writeScriptsToDisk(dir, scripts, { preferredProvider: 'gemini', geminiApiKey: null, openaiApiKey: null, claudeApiKey: null });
     expect(updated[0].filePath).toBe('a.js');
   });
 
@@ -63,7 +63,7 @@ describe('fs-sync write operations', () => {
     const scripts: ScriptItem[] = [
       { id: '1', name: 'Old Name', description: '', language: 'javascript', content: '1', createdAt: nowIso(), updatedAt: nowIso(), filePath: 'Old-Name.js' },
     ];
-    const updated = await writeAllToDisk(dir, scripts, { geminiApiKey: null });
+    const updated = await writeAllToDisk(dir, scripts, { preferredProvider: 'gemini', geminiApiKey: null, openaiApiKey: null, claudeApiKey: null });
     expect(updated[0].filePath).toBe('Old-Name.js');
   });
 });
